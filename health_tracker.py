@@ -3485,6 +3485,213 @@ class DietTemplateEditDialog(QDialog):
 
 
 # -----------------------------
+# Workout template editor
+# -----------------------------
+class WorkoutTemplateEditDialog(QDialog):
+    """In-app editor for a workout template.
+
+    Mirrors the diet editor. Exercises are edited in a table (Name,
+    Sets × Reps, Target Load, Notes) with an "Advanced (JSON)" column that
+    exposes HIIT/extra fields (type, steps, rounds, step_seconds, …) as raw
+    JSON so they stay visible and editable. Any unknown fields the user had
+    in the JSON survive a round trip via ExerciseDef.extra.
+    """
+
+    EX_COLUMNS = ["Name", "Sets × Reps", "Target Load", "Notes", "Advanced (JSON)"]
+    DISPLAY_KEYS = {"name", "sets_reps", "target_load", "notes"}
+
+    def __init__(self, parent: QWidget, template: WorkoutTemplate):
+        super().__init__(parent)
+        self.template = template
+        self.setWindowTitle(f"Workout template editor — {template.name}")
+        self.resize(960, 660)
+
+        layout = QVBoxLayout(self)
+
+        info_box = QGroupBox("Template summary")
+        info_grid = QGridLayout(info_box)
+
+        self.name_label = QLabel(template.name)
+        self.name_label.setStyleSheet("font-weight: bold;")
+        self.rest_edit = QLineEdit(str(template.default_rest_seconds()))
+        self.rest_edit.setPlaceholderText("Default rest seconds, e.g. 75")
+        self.rest_edit.setMaximumWidth(100)
+
+        info_grid.addWidget(QLabel("Template"), 0, 0)
+        info_grid.addWidget(self.name_label, 0, 1)
+        info_grid.addWidget(QLabel("Default rest (seconds)"), 0, 2)
+        info_grid.addWidget(self.rest_edit, 0, 3)
+        info_grid.setColumnStretch(1, 1)
+        layout.addWidget(info_box)
+
+        self.exercises_table = QTableWidget(0, len(self.EX_COLUMNS))
+        self.exercises_table.setHorizontalHeaderLabels(self.EX_COLUMNS)
+        header = self.exercises_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.exercises_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.exercises_table.setEditTriggers(
+            QTableWidget.EditTrigger.DoubleClicked
+            | QTableWidget.EditTrigger.SelectedClicked
+            | QTableWidget.EditTrigger.EditKeyPressed
+        )
+        layout.addWidget(QLabel("Exercises"))
+        layout.addWidget(self.exercises_table, 1)
+
+        ex_buttons = QHBoxLayout()
+        self.add_ex_btn = QPushButton("Add exercise")
+        self.remove_ex_btn = QPushButton("Remove selected")
+        self.move_up_btn = QPushButton("Move up")
+        self.move_down_btn = QPushButton("Move down")
+        ex_buttons.addWidget(self.add_ex_btn)
+        ex_buttons.addWidget(self.remove_ex_btn)
+        ex_buttons.addStretch(1)
+        ex_buttons.addWidget(self.move_up_btn)
+        ex_buttons.addWidget(self.move_down_btn)
+        layout.addLayout(ex_buttons)
+
+        advanced_hint = QLabel(
+            "Advanced (JSON) holds extra/HIIT fields (type, steps, rounds, step_seconds, …). "
+            "Leave it as {} for a plain strength exercise."
+        )
+        advanced_hint.setStyleSheet("color: #888888; font-size: 11px;")
+        advanced_hint.setWordWrap(True)
+        layout.addWidget(advanced_hint)
+
+        self.warmup_edit = QPlainTextEdit()
+        self.warmup_edit.setPlaceholderText("Warm-up notes for this template")
+        self.warmup_edit.setFixedHeight(70)
+        self.warmup_edit.setPlainText(stringify_value(template.warmup_notes))
+        layout.addWidget(QLabel("Warm-up notes"))
+        layout.addWidget(self.warmup_edit)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._render_exercises(template.exercises)
+        if self.exercises_table.rowCount() == 0:
+            self.add_exercise_row(ExerciseDef("", "", "", "", extra={}))
+
+        self.add_ex_btn.clicked.connect(lambda: self.add_exercise_row(ExerciseDef("", "", "", "", extra={})))
+        self.remove_ex_btn.clicked.connect(self.remove_selected_exercise)
+        self.move_up_btn.clicked.connect(lambda: self.move_selected(-1))
+        self.move_down_btn.clicked.connect(lambda: self.move_selected(1))
+
+    def _advanced_text(self, exercise: ExerciseDef) -> str:
+        extra = {k: v for k, v in exercise.extra.items() if k not in self.DISPLAY_KEYS}
+        return json.dumps(extra, ensure_ascii=False) if extra else "{}"
+
+    def add_exercise_row(self, exercise: ExerciseDef) -> None:
+        row = self.exercises_table.rowCount()
+        self.exercises_table.insertRow(row)
+        values = [
+            exercise.name,
+            exercise.sets_reps,
+            exercise.target_load,
+            exercise.notes,
+            self._advanced_text(exercise),
+        ]
+        for col, value in enumerate(values):
+            self.exercises_table.setItem(row, col, QTableWidgetItem(stringify_value(value)))
+
+    def _render_exercises(self, exercises: List[ExerciseDef]) -> None:
+        self.exercises_table.setRowCount(0)
+        for exercise in exercises:
+            self.add_exercise_row(exercise)
+
+    def cell_text(self, row: int, col: int) -> str:
+        item = self.exercises_table.item(row, col)
+        return item.text().strip() if item else ""
+
+    def _parse_advanced(self, text: str) -> Dict[str, Any]:
+        text = (text or "").strip()
+        if not text or text == "{}":
+            return {}
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            raise ValueError("Advanced JSON must be an object, e.g. {\"type\": \"hiit\"}")
+        return data
+
+    def _row_to_exercise(self, row: int) -> ExerciseDef:
+        extra = self._parse_advanced(self.cell_text(row, 4))
+        return ExerciseDef(
+            name=self.cell_text(row, 0),
+            sets_reps=self.cell_text(row, 1),
+            target_load=self.cell_text(row, 2),
+            notes=self.cell_text(row, 3),
+            extra=extra,
+        )
+
+    def remove_selected_exercise(self) -> None:
+        rows = sorted({index.row() for index in self.exercises_table.selectedIndexes()}, reverse=True)
+        for row in rows:
+            self.exercises_table.removeRow(row)
+
+    def move_selected(self, delta: int) -> None:
+        selected = sorted({index.row() for index in self.exercises_table.selectedIndexes()})
+        if len(selected) != 1:
+            return
+        row = selected[0]
+        target = row + delta
+        if target < 0 or target >= self.exercises_table.rowCount():
+            return
+        # Reorder using raw cell text so a malformed Advanced cell cannot block a move.
+        snapshot = [
+            [self.cell_text(r, c) for c in range(len(self.EX_COLUMNS))]
+            for r in range(self.exercises_table.rowCount())
+        ]
+        snapshot[row], snapshot[target] = snapshot[target], snapshot[row]
+        self.exercises_table.setRowCount(0)
+        for cells in snapshot:
+            r = self.exercises_table.rowCount()
+            self.exercises_table.insertRow(r)
+            for c, value in enumerate(cells):
+                self.exercises_table.setItem(r, c, QTableWidgetItem(value))
+        self.exercises_table.selectRow(target)
+
+    def exercises(self) -> List[ExerciseDef]:
+        result: List[ExerciseDef] = []
+        for row in range(self.exercises_table.rowCount()):
+            if not self.cell_text(row, 0):
+                continue
+            result.append(self._row_to_exercise(row))
+        return result
+
+    def accept(self) -> None:
+        # Validate every Advanced cell so we never silently drop HIIT/extra data.
+        for row in range(self.exercises_table.rowCount()):
+            name = self.cell_text(row, 0)
+            try:
+                self._parse_advanced(self.cell_text(row, 4))
+            except Exception as exc:
+                QMessageBox.warning(
+                    self,
+                    APP_TITLE,
+                    f"Row {row + 1} ({name or 'unnamed'}) has invalid Advanced JSON:\n\n{exc}",
+                )
+                return
+        if not self.exercises():
+            QMessageBox.information(self, APP_TITLE, "Add at least one exercise with a name.")
+            return
+        super().accept()
+
+    def get_template(self) -> WorkoutTemplate:
+        extra = dict(self.template.extra)
+        extra["_default_rest_seconds"] = parse_positive_int(self.rest_edit.text(), 75)
+        return WorkoutTemplate(
+            name=self.template.name,
+            exercises=self.exercises(),
+            warmup_notes=self.warmup_edit.toPlainText().strip(),
+            extra=extra,
+        )
+
+
+# -----------------------------
 # Recipes UI
 # -----------------------------
 class RecipeEditDialog(QDialog):
@@ -4444,11 +4651,15 @@ class WorkoutBuilder(QWidget):
 
         self.progress_label = QLabel("0 / 0 completed")
 
+        self.edit_template_btn = QPushButton("Edit template…")
+        self.edit_template_btn.setToolTip("Edit this workout template's exercises and rest. Saved workout history keeps its own snapshots.")
+
         header_layout.addWidget(QLabel("Template"), 0, 0)
         header_layout.addWidget(self.template_combo, 0, 1)
         header_layout.addWidget(QLabel("Date"), 0, 2)
         header_layout.addWidget(self.date_edit, 0, 3)
         header_layout.addWidget(self.progress_label, 0, 4)
+        header_layout.addWidget(self.edit_template_btn, 0, 5)
         header_layout.addWidget(QLabel("Warm-up Notes"), 1, 0, Qt.AlignmentFlag.AlignTop)
         header_layout.addWidget(self.warmup_notes, 1, 1, 1, 4)
         outer.addWidget(header_box)
@@ -4502,6 +4713,7 @@ class WorkoutBuilder(QWidget):
         self.embedded_beep_sound = make_beep_sound(self)
 
         self.template_combo.currentTextChanged.connect(self._on_template_changed)
+        self.edit_template_btn.clicked.connect(self.edit_selected_template)
         self.mark_all_btn.clicked.connect(self.mark_all_done)
         self.clear_checks_btn.clicked.connect(self.clear_checks)
         self.reset_template_btn.clicked.connect(self.reset_fields)
@@ -4531,6 +4743,7 @@ class WorkoutBuilder(QWidget):
         self.start_hiit_timer_btn.setEnabled(has_templates)
         self.start_rest_timer_btn.setEnabled(has_templates)
         self.reset_rest_timer_btn.setEnabled(has_templates)
+        self.edit_template_btn.setEnabled(has_templates)
         self.pause_rest_timer_btn.setEnabled(False)
         self.reset_rest_timer()
 
@@ -4547,6 +4760,35 @@ class WorkoutBuilder(QWidget):
             self.rows_layout.addWidget(label)
             self.rows_layout.addStretch(1)
             self.update_progress()
+
+    def edit_selected_template(self) -> None:
+        name = self.template_combo.currentText()
+        if name not in self.templates:
+            QMessageBox.information(self, APP_TITLE, "Select a workout template first.")
+            return
+
+        dialog = WorkoutTemplateEditDialog(self, self.templates[name])
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            updated = self.templates.copy()
+            updated[name] = dialog.get_template()
+            self.store.set_templates(updated)
+        except Exception as exc:
+            QMessageBox.warning(self, APP_TITLE, f"Could not save the workout template.\n\n{exc}")
+            return
+
+        # Reload from disk and rebuild the visible builder. Saved workout-history
+        # entries carry their own exercise snapshots, so editing a template never
+        # rewrites logged workouts.
+        self.refresh_templates()
+        self.template_combo.setCurrentText(name)
+        QMessageBox.information(
+            self,
+            APP_TITLE,
+            "Workout template saved. Logged workouts keep their saved snapshots.",
+        )
 
     def clear_rows(self) -> None:
         while self.rows_layout.count():
