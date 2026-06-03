@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
@@ -2106,6 +2107,132 @@ class UnifiedStore:
             pass
         return path
 
+    def _diet_template_file_path(self, display_name: str) -> Path:
+        """A free file path under diet_configs/ for a new/renamed template."""
+        base = self.safe_id(display_name, "diet_template")
+        path = self.diet_templates_dir / f"{base}.json"
+        counter = 2
+        while path.exists():
+            path = self.diet_templates_dir / f"{base}_{counter}.json"
+            counter += 1
+        return path
+
+    def create_diet_template(self, name: str) -> Tuple[str, Path]:
+        display = stringify_value(name)
+        if not display:
+            raise ValueError("Template name is required.")
+        if display in self.diet_template_map():
+            raise ValueError(f"A diet template named '{display}' already exists.")
+        path = self._diet_template_file_path(display)
+        payload = {
+            "template_name": display,
+            "target_calories": parse_float(DEFAULT_DIET_CONFIG.get("target_calories", 0), 0.0),
+            "estimated_expenditure": parse_float(DEFAULT_DIET_CONFIG.get("estimated_expenditure", 0), 0.0),
+            "notes": "",
+            "items": [],
+        }
+        write_json(path, payload)
+        return display, path
+
+    def rename_diet_template(self, old_name: str, new_name: str) -> str:
+        old = stringify_value(old_name)
+        new = stringify_value(new_name)
+        if not new:
+            raise ValueError("New name is required.")
+        if new == old:
+            return new
+        path = self.diet_template_source_path(old)
+        if path is None or path.resolve() == self.diet_config_path.resolve():
+            raise ValueError(
+                "The active diet_config.json can't be renamed. Create a standalone template instead."
+            )
+        if new in self.diet_template_map():
+            raise ValueError(f"A diet template named '{new}' already exists.")
+
+        data: Dict[str, Any] = {}
+        if path.exists():
+            try:
+                loaded = read_json(path)
+                if isinstance(loaded, dict):
+                    data = loaded
+            except Exception:
+                data = {}
+        data.pop("_external_template_file", None)
+        data["template_name"] = new
+
+        new_path = self._diet_template_file_path(new)
+        write_json(new_path, self.normalize_diet_config(data))
+        try:
+            if path.exists() and path.resolve() != new_path.resolve():
+                path.unlink()
+        except Exception:
+            pass
+
+        settings = self.read_diet_template_settings()
+        if stringify_value(settings.get("default_diet_template")) == old:
+            self.set_default_diet_template_name(new)
+        return new
+
+    def delete_diet_template(self, name: str) -> None:
+        target = stringify_value(name)
+        path = self.diet_template_source_path(target)
+        if path is None or path.resolve() == self.diet_config_path.resolve():
+            raise ValueError("The active diet_config.json can't be deleted.")
+        if path.exists():
+            self.backup_file(path)
+            path.unlink()
+        settings = self.read_diet_template_settings()
+        if stringify_value(settings.get("default_diet_template")) == target:
+            self.set_default_diet_template_name("")
+
+    def create_workout_template(self, name: str) -> str:
+        display = stringify_value(name)
+        if not display:
+            raise ValueError("Template name is required.")
+        templates = self.get_templates()
+        if display in templates:
+            raise ValueError(f"A workout template named '{display}' already exists.")
+        templates[display] = WorkoutTemplate(
+            name=display, exercises=[], warmup_notes="", extra={"_default_rest_seconds": 75}
+        )
+        self.set_templates(templates)
+        return display
+
+    def rename_workout_template(self, old_name: str, new_name: str) -> str:
+        old = stringify_value(old_name)
+        new = stringify_value(new_name)
+        if not new:
+            raise ValueError("New name is required.")
+        if new == old:
+            return new
+        templates = self.get_templates()
+        if old not in templates:
+            raise ValueError(f"Workout template '{old}' was not found.")
+        if new in templates:
+            raise ValueError(f"A workout template named '{new}' already exists.")
+
+        rebuilt: Dict[str, WorkoutTemplate] = {}
+        for key, template in templates.items():
+            if key == old:
+                template.name = new
+                rebuilt[new] = template
+            else:
+                rebuilt[key] = template
+        self.set_templates(rebuilt)
+        if self.get_last_template() == old:
+            self.set_last_template(new)
+        return new
+
+    def delete_workout_template(self, name: str) -> None:
+        target = stringify_value(name)
+        templates = self.get_templates()
+        if target not in templates:
+            raise ValueError(f"Workout template '{target}' was not found.")
+        del templates[target]
+        self.set_templates(templates)
+        if self.get_last_template() == target:
+            self.set_last_template("")
+
     def get_diet_log(self, date_text: str) -> Dict[str, Any]:
         logs = self.data["diet"].setdefault("logs", {})
         if date_text not in logs:
@@ -2211,6 +2338,13 @@ class DietChecklistPage(QWidget):
         self.make_default_diet_template_btn.setToolTip("Use this diet template automatically for new blank days.")
         self.edit_diet_template_btn = QPushButton("Edit template…")
         self.edit_diet_template_btn.setToolTip("Edit this diet template's items, target, and expenditure. Saved days keep their frozen snapshots.")
+        self.manage_diet_template_btn = QPushButton("Manage ▾")
+        self.manage_diet_template_btn.setToolTip("Create, rename, or delete diet templates.")
+        manage_menu = QMenu(self.manage_diet_template_btn)
+        self.new_diet_template_action = manage_menu.addAction("New template…")
+        self.rename_diet_template_action = manage_menu.addAction("Rename template…")
+        self.delete_diet_template_action = manage_menu.addAction("Delete template…")
+        self.manage_diet_template_btn.setMenu(manage_menu)
 
         top.addWidget(self.prev_btn)
         top.addWidget(self.today_btn)
@@ -2220,6 +2354,7 @@ class DietChecklistPage(QWidget):
         top.addWidget(self.diet_template_combo)
         top.addWidget(self.make_default_diet_template_btn)
         top.addWidget(self.edit_diet_template_btn)
+        top.addWidget(self.manage_diet_template_btn)
         top.addStretch(1)
         top.addWidget(self.select_all_btn)
         top.addWidget(self.clear_selected_btn)
@@ -2328,6 +2463,9 @@ class DietChecklistPage(QWidget):
         self.diet_template_combo.currentIndexChanged.connect(self.on_diet_template_changed)
         self.make_default_diet_template_btn.clicked.connect(self.make_selected_diet_template_default)
         self.edit_diet_template_btn.clicked.connect(self.edit_selected_diet_template)
+        self.new_diet_template_action.triggered.connect(self.new_diet_template)
+        self.rename_diet_template_action.triggered.connect(self.rename_selected_diet_template)
+        self.delete_diet_template_action.triggered.connect(self.delete_selected_diet_template)
 
         # Free-text fields now autosave too, so the old Save button is unnecessary.
         self.weight_edit.textChanged.connect(self.on_free_text_changed)
@@ -2425,6 +2563,82 @@ class DietChecklistPage(QWidget):
             "Diet template saved. Previously logged days keep their frozen items; "
             "new blank days use the updated template.",
         )
+
+    def new_diet_template(self) -> None:
+        name, ok = QInputDialog.getText(self, APP_TITLE, "Name for the new diet template:")
+        if not ok or not stringify_value(name):
+            return
+        try:
+            display, path = self.store.create_diet_template(name)
+        except Exception as exc:
+            QMessageBox.warning(self, APP_TITLE, str(exc))
+            return
+
+        self.store.load_split_files()
+        # Open the editor right away so the user fills the empty template.
+        config = self.store.diet_config_for_template(display)
+        dialog = DietTemplateEditDialog(self, display, config)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            try:
+                self.store.save_diet_template(display, dialog.get_config())
+            except Exception as exc:
+                QMessageBox.warning(self, APP_TITLE, f"Could not save the diet template.\n\n{exc}")
+        else:
+            # Cancelled before adding anything — drop the empty starter file.
+            try:
+                if path.exists():
+                    path.unlink()
+            except Exception:
+                pass
+
+        self.store.load_split_files()
+        self.refresh_diet_template_combo(display)
+        self.rebuild_items(force_current_config=True)
+
+    def rename_selected_diet_template(self) -> None:
+        old = self.selected_diet_template_name()
+        if self.store.diet_template_source_path(old) is None or not old:
+            QMessageBox.information(
+                self, APP_TITLE,
+                "This entry can't be renamed in-app. Create a standalone template instead.",
+            )
+            return
+        new, ok = QInputDialog.getText(self, APP_TITLE, "New name for this diet template:", text=old)
+        if not ok or not stringify_value(new):
+            return
+        try:
+            display = self.store.rename_diet_template(old, new)
+        except Exception as exc:
+            QMessageBox.warning(self, APP_TITLE, str(exc))
+            return
+        self.store.load_split_files()
+        self.refresh_diet_template_combo(display)
+        self.rebuild_items(force_current_config=True)
+
+    def delete_selected_diet_template(self) -> None:
+        target = self.selected_diet_template_name()
+        if self.store.diet_template_source_path(target) is None or not target:
+            QMessageBox.information(
+                self, APP_TITLE,
+                "This entry can't be deleted in-app.",
+            )
+            return
+        confirm = QMessageBox.question(
+            self, APP_TITLE,
+            f"Delete diet template '{target}'?\n\nSaved days that used it keep their frozen snapshots.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.store.delete_diet_template(target)
+        except Exception as exc:
+            QMessageBox.warning(self, APP_TITLE, str(exc))
+            return
+        self.store.load_split_files()
+        self.refresh_diet_template_combo()
+        self.rebuild_items(force_current_config=True)
 
     def set_diet_template_combo(self, template_name: str) -> None:
         index = self.diet_template_combo.findData(stringify_value(template_name))
@@ -4653,6 +4867,13 @@ class WorkoutBuilder(QWidget):
 
         self.edit_template_btn = QPushButton("Edit template…")
         self.edit_template_btn.setToolTip("Edit this workout template's exercises and rest. Saved workout history keeps its own snapshots.")
+        self.manage_template_btn = QPushButton("Manage ▾")
+        self.manage_template_btn.setToolTip("Create, rename, or delete workout templates.")
+        manage_menu = QMenu(self.manage_template_btn)
+        self.new_template_action = manage_menu.addAction("New template…")
+        self.rename_template_action = manage_menu.addAction("Rename template…")
+        self.delete_template_action = manage_menu.addAction("Delete template…")
+        self.manage_template_btn.setMenu(manage_menu)
 
         header_layout.addWidget(QLabel("Template"), 0, 0)
         header_layout.addWidget(self.template_combo, 0, 1)
@@ -4660,6 +4881,7 @@ class WorkoutBuilder(QWidget):
         header_layout.addWidget(self.date_edit, 0, 3)
         header_layout.addWidget(self.progress_label, 0, 4)
         header_layout.addWidget(self.edit_template_btn, 0, 5)
+        header_layout.addWidget(self.manage_template_btn, 0, 6)
         header_layout.addWidget(QLabel("Warm-up Notes"), 1, 0, Qt.AlignmentFlag.AlignTop)
         header_layout.addWidget(self.warmup_notes, 1, 1, 1, 4)
         outer.addWidget(header_box)
@@ -4714,6 +4936,9 @@ class WorkoutBuilder(QWidget):
 
         self.template_combo.currentTextChanged.connect(self._on_template_changed)
         self.edit_template_btn.clicked.connect(self.edit_selected_template)
+        self.new_template_action.triggered.connect(self.new_workout_template)
+        self.rename_template_action.triggered.connect(self.rename_selected_workout_template)
+        self.delete_template_action.triggered.connect(self.delete_selected_workout_template)
         self.mark_all_btn.clicked.connect(self.mark_all_done)
         self.clear_checks_btn.clicked.connect(self.clear_checks)
         self.reset_template_btn.clicked.connect(self.reset_fields)
@@ -4789,6 +5014,67 @@ class WorkoutBuilder(QWidget):
             APP_TITLE,
             "Workout template saved. Logged workouts keep their saved snapshots.",
         )
+
+    def new_workout_template(self) -> None:
+        name, ok = QInputDialog.getText(self, APP_TITLE, "Name for the new workout template:")
+        if not ok or not stringify_value(name):
+            return
+        try:
+            display = self.store.create_workout_template(name)
+        except Exception as exc:
+            QMessageBox.warning(self, APP_TITLE, str(exc))
+            return
+
+        self.refresh_templates()
+        self.template_combo.setCurrentText(display)
+        # Open the editor immediately so the user fills the empty template.
+        if display in self.templates:
+            dialog = WorkoutTemplateEditDialog(self, self.templates[display])
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                try:
+                    updated = self.store.get_templates()
+                    updated[display] = dialog.get_template()
+                    self.store.set_templates(updated)
+                except Exception as exc:
+                    QMessageBox.warning(self, APP_TITLE, f"Could not save the workout template.\n\n{exc}")
+            self.refresh_templates()
+            self.template_combo.setCurrentText(display)
+
+    def rename_selected_workout_template(self) -> None:
+        old = self.template_combo.currentText()
+        if old not in self.templates:
+            QMessageBox.information(self, APP_TITLE, "Select a workout template first.")
+            return
+        new, ok = QInputDialog.getText(self, APP_TITLE, "New name for this workout template:", text=old)
+        if not ok or not stringify_value(new):
+            return
+        try:
+            display = self.store.rename_workout_template(old, new)
+        except Exception as exc:
+            QMessageBox.warning(self, APP_TITLE, str(exc))
+            return
+        self.refresh_templates()
+        self.template_combo.setCurrentText(display)
+
+    def delete_selected_workout_template(self) -> None:
+        target = self.template_combo.currentText()
+        if target not in self.templates:
+            QMessageBox.information(self, APP_TITLE, "Select a workout template first.")
+            return
+        confirm = QMessageBox.question(
+            self, APP_TITLE,
+            f"Delete workout template '{target}'?\n\nLogged workouts that used it keep their saved snapshots.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.store.delete_workout_template(target)
+        except Exception as exc:
+            QMessageBox.warning(self, APP_TITLE, str(exc))
+            return
+        self.refresh_templates()
 
     def clear_rows(self) -> None:
         while self.rows_layout.count():
