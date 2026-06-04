@@ -3,7 +3,11 @@
 # live under DATA/ and stay on each user's own machine. Per the
 # convention in CLAUDE.md, the app's data folder is gitignored by design.
 DATA/
+DATA_realbackup_*/
 *.env
+
+# --- Local-only demo/screenshot scaffolding (never shipped) ---
+build_demo_data.py
 
 # --- Build artifacts (PyInstaller .exe is rebuilt locally; not versioned) ---
 HealthTracker.exe
