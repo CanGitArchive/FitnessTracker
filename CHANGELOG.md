@@ -2,67 +2,67 @@
 
 All notable changes to Home Fitness Tracker.
 
-## [0.2.0] — In-app template editors
+## [0.2.0]: In-app template editors
 
-The diet and workout templates are now fully editable from the UI — no
+The diet and workout templates are now fully editable from the UI, no
 JSON editing required. Built mirroring the existing `RecipeEditDialog`
 shape.
 
-- **Diet Editor** (`DietTemplateEditDialog`) — an "Edit template…" button
+- **Diet Editor** (`DietTemplateEditDialog`): an "Edit template…" button
   on the Diet Checklist tab opens an editor for the active template's
   target calories, estimated expenditure, notes, and item table
   (ID / Name / Amount / Unit / Calories / Category / Notes) with
   add / remove / move-up / move-down. Saving re-validates through
   `normalize_diet_config`, backs the file up first, and preserves unknown
   JSON fields. The per-day snapshot rule is upheld: editing a template only
-  changes future blank days — saved days keep their frozen item / target /
+  changes future blank days, saved days keep their frozen item / target /
   expenditure snapshots.
-- **Workout Editor** (`WorkoutTemplateEditDialog`) — an "Edit template…"
+- **Workout Editor** (`WorkoutTemplateEditDialog`): an "Edit template…"
   button on the Workout Log tab edits exercises (Name / Sets × Reps /
   Target Load / Notes) plus the template's default rest seconds and warm-up
   notes. HIIT-block and other extra fields are exposed in an
   "Advanced (JSON)" column so they stay visible and editable, validated on
   save so HIIT data is never silently dropped; unknown fields round-trip
   via `ExerciseDef.extra`. Logged workouts keep their own snapshots.
-- **Template management** — a "Manage ▾" menu on both tabs adds
+- **Template management**: a "Manage ▾" menu on both tabs adds
   New / Rename / Delete. New opens the editor on an empty template; rename
   and delete keep the default-template and last-selected references in sync
   and leave saved history's frozen snapshots intact. The active
   `diet_config.json` fallback is protected from rename / delete.
-- **First-run empty states** — the Workout Log tab shows a "Create your
+- **First-run empty states**: the Workout Log tab shows a "Create your
   first template →" button instead of a JSON-editing instruction, and the
   Diet Checklist tab offers a "Create your first item →" button when a
   template has no items.
 - README trimmed for a faster skim; JSON editing reframed as the
   power-user option rather than the default workflow.
 
-## [0.1.0] — Initial public release
+## [0.1.0]: Initial public release
 
 Single-file PyQt6 desktop app with these capabilities at v0.1:
 
-- **Diet Checklist tab** — per-day item checklist with per-day frozen
+- **Diet Checklist tab**: per-day item checklist with per-day frozen
   snapshots so editing today's template never rewrites yesterday's
   history. Items group by category, autosave on every change, support
   Turkish/European decimal comma and a tiny safe arithmetic mini-calculator
-  (`120 + 33`, `(100+50)/2` — `ast`-based, never `eval`) on the "additional
+  (`120 + 33`, `(100+50)/2`, `ast`-based, never `eval`) on the "additional
   calories" and "additional deficit" fields. Multiple selectable diet
   templates via JSON files in `DietTracker/diet_configs/`.
-- **Diet History tab** — list of saved days with summary, view per-day
+- **Diet History tab**: list of saved days with summary, view per-day
   details, Markdown + PDF exports (all dates / last 7 / custom range),
   delete by date.
-- **Workout Log + History tabs** — JSON-driven workout templates with a
+- **Workout Log + History tabs**: JSON-driven workout templates with a
   schema-flexible loader that preserves unknown fields through a
   round-trip. HIIT timer with custom `beep.wav`, in-tab strength rest
   timer. Editing a saved workout loads its frozen snapshot, not the
   current template.
-- **Recipes tab** — built-in `RecipeEditDialog` for adding/editing/deleting
+- **Recipes tab**: built-in `RecipeEditDialog` for adding/editing/deleting
   recipes; per-recipe ingredients and totals; Markdown + PDF export.
-- **Food Calculator tab** — kcal/g + arbitrary unit definitions
+- **Food Calculator tab**: kcal/g + arbitrary unit definitions
   (`{"g": 1.0, "medium banana": 118}`); live calculation on amount/unit
   change.
-- **Daily Overview tab** — week-at-a-glance grid with diet template name,
+- **Daily Overview tab**: week-at-a-glance grid with diet template name,
   calorie totals, deficit/surplus, and workouts per day.
-- **Phone access — installable PWA over an embedded
+- **Phone access: installable PWA over an embedded
   `ThreadingHTTPServer`** on `0.0.0.0:20003`. All `/api/*` work goes
   through a `PhoneBridge` Qt signal queued onto the main thread, so the
   HTTP handler never touches widgets directly. Diet checklist with
@@ -70,7 +70,7 @@ Single-file PyQt6 desktop app with these capabilities at v0.1:
   log (name / amount / load / RiR / Save) with in-progress edits cached
   client-side across tab switches, diet & workout history (view + delete).
   Custom dark-styled checkboxes; today auto-refreshes on the phone's local
-  clock. Pure store reads on every phone GET — the desktop's date and
+  clock. Pure store reads on every phone GET, the desktop's date and
   notes are never mutated by a phone refresh.
 - **Optional Cloudflare named tunnel** for HTTPS-from-anywhere with
   email-PIN gating via Cloudflare Access. Auto-started by the app when a
@@ -80,14 +80,14 @@ Single-file PyQt6 desktop app with these capabilities at v0.1:
   prior run) so a crashed or force-killed app can never leave an orphan
   tunnel serving 502.
 - **Maskable launcher icon** generated at runtime from the app's `.ico`
-  via PyQt (no Pillow dependency), full-bleed by design — the WebAPK
+  via PyQt (no Pillow dependency), full-bleed by design, the WebAPK
   icon fills the tile like a normal app rather than floating a small
   logo on a gradient.
 - **PDF + Markdown exports** for diet history, workout history, and
   recipes (PyQt `QTextDocument` rendering; no extra dependency).
 - **Defensive JSON loading**: every config / log / template file is
   normalized on read, and any unreadable file is backed up to
-  `DATA/HealthTracker/backups/` before the app falls back to defaults —
+  `DATA/HealthTracker/backups/` before the app falls back to defaults,
   the app refuses to crash on bad data.
 
 ### Known limitations / planned for next versions
