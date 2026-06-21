@@ -75,4 +75,4 @@ engineering narrative.
 
 ## License
 
-MIT: see [LICENSE](LICENSE). Copyright (c) 2026 Can KADILAR.
+MIT: see [LICENSE](LICENSE). Copyright (c) 2026 Ken KADILAR.
