@@ -73,7 +73,7 @@ except Exception:  # QtMultimedia may be unavailable in some PyQt installs; fall
     QSoundEffect = None  # type: ignore
 
 APP_TITLE = "Home Fitness Tracker"
-APP_VERSION = "0.5"
+APP_VERSION = "0.5.1"
 APP_ICON_FILE = "icon.ico"
 BEEP_SOUND_FILE = "beep.wav"
 DATA_DIR_NAME = "DATA"
@@ -4453,7 +4453,7 @@ class WorkoutBuilder(QWidget):
 
         self.warmup_notes = QPlainTextEdit()
         self.warmup_notes.setReadOnly(True)
-        self.warmup_notes.setPlaceholderText("Warm-up notes from template")
+        self.warmup_notes.setPlaceholderText("Notes from template")
         self.warmup_notes.setFixedHeight(90)
 
         self.progress_label = QLabel("0 / 0 completed")
@@ -4469,7 +4469,7 @@ class WorkoutBuilder(QWidget):
         header_layout.addWidget(QLabel("Date"), 0, 3)
         header_layout.addWidget(self.date_edit, 0, 4)
         header_layout.addWidget(self.progress_label, 0, 5)
-        header_layout.addWidget(QLabel("Warm-up Notes"), 1, 0, Qt.AlignmentFlag.AlignTop)
+        header_layout.addWidget(QLabel("Notes"), 1, 0, Qt.AlignmentFlag.AlignTop)
         header_layout.addWidget(self.warmup_notes, 1, 1, 1, 4)
         outer.addWidget(header_box)
 
@@ -4892,7 +4892,7 @@ class WorkoutHistoryPage(QWidget):
         self.entry_notes.setFixedHeight(100)
         right_layout.addWidget(self.summary_label)
         right_layout.addWidget(self.details_table, 1)
-        right_layout.addWidget(QLabel("Warm-up Notes"))
+        right_layout.addWidget(QLabel("Notes"))
         right_layout.addWidget(self.entry_notes)
 
         splitter.addWidget(self.list_widget)
@@ -5166,7 +5166,7 @@ class WorkoutHistoryPage(QWidget):
 
             warmup_notes = stringify_value(entry.get("warmup_notes", entry.get("workout_notes", ""))).strip()
             if warmup_notes:
-                parts.append(f"<h3>Warm-up Notes <span class='truncated'>(shortened in PDF)</span></h3><div class='note'>{compact_pdf_text(warmup_notes, 170)}</div>")
+                parts.append(f"<h3>Notes <span class='truncated'>(shortened in PDF)</span></h3><div class='note'>{compact_pdf_text(warmup_notes, 170)}</div>")
 
             parts.append("<h3>Exercises</h3>")
             parts.append(
@@ -5196,7 +5196,7 @@ class WorkoutHistoryPage(QWidget):
         lines.append(f"Workout template: {entry.get('template', '')}\n\n")
         warmup_notes = entry.get("warmup_notes", entry.get("workout_notes", "")).strip()
         if warmup_notes:
-            lines.append("Warm-up notes:\n")
+            lines.append("Notes:\n")
             lines.append(f"{warmup_notes}\n\n")
         lines.append("| Exercise | Sets × Reps | Target Load | RIR After Sets | Done | Notes |\n")
         lines.append("| --- | ---: | --- | :---: | :---: | --- |\n")

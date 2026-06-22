@@ -2,6 +2,14 @@
 
 All notable changes to Home Fitness Tracker.
 
+## [0.5.1]: "Warm-up Notes" relabeled to "Notes"
+
+The template-level note field is now labeled just **"Notes"** in the Workout
+Log, Workout History detail, and the PDF/Markdown exports, since warm-ups are
+now added as proper exercises (with the "No RIR" toggle) rather than living in
+this field. Display label only; the `warmup_notes` / `_warmup_notes` JSON keys
+are unchanged, so existing data keeps working.
+
 ## [0.5.0]: "No RIR" exercise toggle for warm-ups and mobility
 
 - **Per-exercise "No RIR" toggle** in the Config Editor's Workout Templates
